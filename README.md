@@ -3,9 +3,11 @@
 This repository implements a **full Transformer model from scratch** in PyTorch for **character-level English → French machine translation**.
 
 It includes:
-- `model.py` – Complete encoder-decoder Transformer architecture
-- `dataset.py` – Data loading, character-level tokenization, padding, and batching
+- `models/transformer.py` – Complete encoder-decoder Transformer architecture
+- `data/dataloader.py` – Data loading, character-level tokenization, padding, and batching
+- `inference/generate.py` – Translating english sentence to french
 - `train.py` – Training loop with checkpointing and simple inference testing
+- `app.py` – Streamlit application for model demo
 
 The model follows the original *"Attention is All You Need"* architecture with modern improvements (pre-norm, proper masking).
 
@@ -140,7 +142,7 @@ The script will:
 - Build character vocabularies for English and French
 - Train for 5000 iterations
 - Evaluate on train/val splits every 500 steps
-- Save the best model as `best_checkpoint.pt`
+- Save the best model as `saved_models/best_checkpoint.pt`
 - After training, test translation on two example sentences
 
 ---
@@ -158,7 +160,7 @@ The script will:
 
 ## Customization
 
-Edit hyperparameters in `model.py` or at the top of files:
+Edit hyperparameters in `models/transformer.py` or at the top of files:
 
 ```python
 n_embd = 256
