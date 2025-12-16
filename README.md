@@ -85,7 +85,7 @@ Special tokens added:
 ## Project Structure
 
 ```text
-Transformer_from_scratch/
+Transformer-from-scratch/
 │
 ├── data/
 │   ├── __init__.py
