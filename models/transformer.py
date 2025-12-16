@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
+from data.dataloader import vocab_size_eng, vocab_size_fr
 
 n_embd = 256
 context_length = 64
@@ -325,3 +326,10 @@ class Transformer(nn.Module):
         
         return generated
     
+def build_model(device):
+    model = Transformer(
+        src_vocab_size=vocab_size_eng,
+        tgt_vocab_size=vocab_size_fr
+    )
+    model.to(device=device)
+    return model

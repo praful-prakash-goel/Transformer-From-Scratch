@@ -1,7 +1,37 @@
+# =========================
+# Python
+# =========================
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.env
+.venv
+venv/
 
+# =========================
+# Jupyter
+# =========================
 .ipynb_checkpoints/
+notebooks/
 
+# =========================
+# Model checkpoints
+# =========================
+saved_models/
 *.pt
+*.pth
+
+# =========================
+# Data artifacts
+# =========================
+*.zip
+
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

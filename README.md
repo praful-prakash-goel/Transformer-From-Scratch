@@ -85,12 +85,33 @@ Special tokens added:
 ## Project Structure
 
 ```text
-.
-├── model.py          # Transformer architecture
-├── dataset.py        # Tokenizers, data loading, batching
-├── train.py          # Training loop + inference demo
-├── eng_french.csv    # Dataset (not included – you must provide)
-└── best_checkpoint.pt # Saved best model (created during training)
+Transformer_from_scratch/
+│
+├── data/
+│   ├── __init__.py
+│   ├── dataset.py
+│   ├── eng_french.csv
+│   └── eng_to_french.zip
+│
+├── inference/
+│   ├── __init__.py
+│   └── generate.py
+│
+├── models/
+│   ├── __init__.py
+│   └── transformer.py
+│
+├── notebooks/
+│   └── data_analysis.ipynb
+│
+├── saved_models/
+│   └── best_checkpoint.pt
+│
+├── app.py
+├── train.py
+├── README.md
+└── .gitignore
+
 ```
 
 # Usage
