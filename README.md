@@ -143,7 +143,16 @@ The script will:
 - Train for 5000 iterations
 - Evaluate on train/val splits every 500 steps
 - Save the best model as `saved_models/best_checkpoint.pt`
-- After training, test translation on two example sentences
+- After training, you can run `app.py` for demo of the model
+
+---
+
+## To translate your own sentences after training:
+
+```bash
+streamlit run app.py
+```
+Run this for demo of the model, in which you can provide your input for translation
 
 ---
 
@@ -171,32 +180,6 @@ dropout = 0.2
 batch_size = 32
 max_iters = 5_000
 lr = 3e-4
-```
-
----
-
-## To translate your own sentences after training:
-
-```python
-sentence = "Your English sentence here"
-src_ids = torch.tensor(
-    eng_tokenizer.encode(sentence),
-    dtype=torch.long
-).unsqueeze(0).to(device)
-
-src_mask = src_ids != eng_tokenizer.pad_idx
-
-idx = torch.tensor([[fr_tokenizer.bos]], dtype=torch.long).to(device)
-
-generated = model.generate(
-    src_ids=src_ids,
-    idx=idx,
-    max_new_tokens=100,
-    src_mask=src_mask,
-    eos_token=fr_tokenizer.eos
-)
-
-print(fr_tokenizer.decode(generated[0].tolist()))
 ```
 
 ---
