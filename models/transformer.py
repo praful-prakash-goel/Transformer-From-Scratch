@@ -279,6 +279,10 @@ class Transformer(nn.Module):
         device = src_ids.device
         B, T_src = src_ids.shape
         
+        # generation is autoregressive: tgt tokens are produced one at a time using all the previously generated tokens
+        # while training/inference assumes that the entire tgt sequence is known in advance and processed in parallel
+        # for fixed source input, the encoder output (memory) is invariant, so we run the encoder once and reuse
+        # its output during decoding to avoid redundant computation
         src_pos = torch.arange(T_src, device=device)
         src_embd = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
         enc_output = src_embd
@@ -286,12 +290,16 @@ class Transformer(nn.Module):
             enc_output = block(enc_output, src_key_padding_mask=src_mask)
         
         generated = idx.clone().to(device)
-        finished = torch.zeros(B, dtype=torch.bool, device=device) if eos_token is not None else None
+        # it keeps track of when the sequence finishes
+        finished = torch.zeros(B, dtype=torch.bool, device=device) if eos_token is not None else None # shape: (B,)
         
+        # run decoder autoregressively for each token
         for _ in range(max_new_tokens):
+            # crop idx upto context length
             idx_cond = generated[:, -context_length:] if generated.size(1) > context_length else generated
             T_cond = idx_cond.size(1)
             
+            # pass the tokens generated till now into the decoder
             tgt_pos = torch.arange(T_cond, device=device)
             tgt_embd = self.tgt_token_embedding_table(idx_cond) + self.position_embedding_table(tgt_pos)
             dec_output = tgt_embd
@@ -299,6 +307,7 @@ class Transformer(nn.Module):
                 dec_output = block(dec_output, encoder_output=enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask)
             out = self.ln_f(dec_output)
             logits = self.lm_head(out)
+            # take only the last logits
             last_logits = logits[:, -1, :]
             
             if temperature != 1.0 and temperature > 0.0:
@@ -307,18 +316,24 @@ class Transformer(nn.Module):
             if do_sample:
                 probs = F.softmax(last_logits, dim=-1)
                 if top_k is not None and top_k > 0:
-                    topk_vals, topk_idxs = probs.topk(top_k, dim=-1)
-                    min_topk = topk_vals[..., -1].unsqueeze(-1)
-                    allowed = probs >= min_topk
-                    probs = probs * allowed.to(probs.dtype)
+                    # take the top k probs sorted in descending order
+                    topk_vals, topk_idxs = probs.topk(top_k, dim=-1) # shape: (B, k)
+                    # take the last prob (min)
+                    min_topk = topk_vals[..., -1].unsqueeze(-1) # shape: (B, 1)
+                    allowed_mask = probs >= min_topk
+                    # allow only those probs which are greater than min
+                    probs = probs * allowed_mask.to(probs.dtype)
+                    # normalize probs
                     probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
                 next_token = torch.multinomial(probs, num_samples=1)
             else:
+                # if sampling is not allowed than take the argmax of the logits
                 next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
             
             generated = torch.cat([generated, next_token], dim=1)
         
             if eos_token is not None:
+                # check to see if a sequence is finished
                 just_finished = next_token.unsqueeze(1) == eos_token
                 finished = finished | just_finished if finished is not None else just_finished
                 if finished.all():
