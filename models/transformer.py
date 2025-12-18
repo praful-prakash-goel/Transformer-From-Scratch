@@ -280,7 +280,7 @@ class Transformer(nn.Module):
         B, T_src = src_ids.shape
         
         # generation is autoregressive: tgt tokens are produced one at a time using all the previously generated tokens
-        # while training/inference assumes that the entire tgt sequence is known in advance and processed in parallel
+        # while training assumes that the entire tgt sequence is known in advance and processed in parallel
         # for fixed source input, the encoder output (memory) is invariant, so we run the encoder once and reuse
         # its output during decoding to avoid redundant computation
         src_pos = torch.arange(T_src, device=device)
