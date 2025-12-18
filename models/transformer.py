@@ -270,9 +270,9 @@ class Transformer(nn.Module):
         idx: (B, T_start) initial decoder token ids (prompt)
         max_new_tokens: number of tokens to generate
         src_mask: optional (B, T_src) boolean mask where True = valid (encoder pads)
-        temperature: sampling temperature
+        temperature: sampling temperature (controls the creativity of the model)
         do_sample: if True sample, else greedy argmax 
-        top_k: if sampling and top_k provided, restrict to top_k
+        top_k: if sampling and top_k provided, restrict to top_k (controls the diversity of sampling)
         eos_token: if provided, stop per-sequence when eos is generated
         returns: Tensor (B, T_start + gen) with generated token ids
         '''

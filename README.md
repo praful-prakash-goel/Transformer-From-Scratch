@@ -91,7 +91,7 @@ Transformer-from-scratch/
 │
 ├── data/
 │   ├── __init__.py
-│   ├── dataset.py
+│   ├── dataloader.py
 │   ├── eng_french.csv
 │   └── eng_to_french.zip
 │
@@ -169,6 +169,7 @@ Run this for demo of the model, in which you can provide your input for translat
 
 ## Customization
 
+Edit hyperparameters in `models/transformer.py` or at the top of files:
 Edit hyperparameters in `models/transformer.py` or at the top of files:
 
 ```python

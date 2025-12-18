@@ -1,10 +1,14 @@
 import pandas as pd
 import torch
+import os
 
 context_length = 64
 batch_size = 32
 
-df = pd.read_csv('eng_french.csv')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(BASE_DIR, "eng_french.csv")
+
+df = pd.read_csv(CSV_PATH)
 eng_text = df['English words/sentences'].tolist()
 french_text = df['French words/sentences'].tolist()
 

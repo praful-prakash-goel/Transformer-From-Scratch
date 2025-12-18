@@ -1,6 +1,16 @@
 import torch
 
-def translate(model, eng_ip, eng_tokenizer, fr_tokenizer, device):
+def translate(
+    model,
+    eng_ip,
+    eng_tokenizer,
+    fr_tokenizer,
+    device,
+    max_new_tokens=100,
+    temperature=1.0,
+    do_sample=False,
+    top_k=None,
+):
     model.eval()
     
     # processing input sentence to feed into encoder
@@ -19,10 +29,11 @@ def translate(model, eng_ip, eng_tokenizer, fr_tokenizer, device):
     translated_op = model.generate(
         src_ids=src_ids,
         idx=idx,
-        max_new_tokens=100,
+        max_new_tokens=max_new_tokens,
         src_mask=src_mask,
-        temperature=1.0,
-        do_sample=False,
+        temperature=temperature,
+        do_sample=do_sample,
+        top_k=top_k,
         eos_token=fr_tokenizer.eos
     )
     fr_op = fr_tokenizer.decode(translated_op[0].tolist())
