@@ -22,6 +22,8 @@ do_sample = st.checkbox(label="Sample the next token")
 
 if do_sample == True:
     top_k = st.slider("Top k (Contols the diversity of sampling)", min_value=1, max_value=100)
+else:
+    top_k = None
 
 submit = st.button("Translate")
 
