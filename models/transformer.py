@@ -124,7 +124,7 @@ class MultiHeadAttention(nn.Module):
             
             weights = F.softmax(weights, dim=-1)
             weights = self.dropout(weights)
-            out = weights @ full_v
+            out = weights @ full_v # shape: (batch, n_heads, time, head_size)
             
             # store new K/V in cache
             self.k_cache[:, :, self.cache_pos:self.cache_pos + Tk] = k
