@@ -26,7 +26,7 @@ def translate(
         dtype=torch.long
     ).to(device)
     
-    translated_op = model.generate(
+    translated_op = model.generate_with_cache(
         src_ids=src_ids,
         idx=idx,
         max_new_tokens=max_new_tokens,

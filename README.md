@@ -1,6 +1,10 @@
+![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white) 
+![Status](https://img.shields.io/badge/Status-Educational-yellow)
+![KV Cache](https://img.shields.io/badge/KV_Cache-Enabled-success)
+
 # English to French Translation Transformer from Scratch
 
-This repository implements a **full Transformer model from scratch** in PyTorch for **character-level English → French machine translation**.
+This repository implements a **full Transformer model from scratch** in PyTorch featuring **Key-Value (KV) Caching** for efficient inference. It is trained on **character-level English → French machine translation**.
 
 It includes:
 - `models/transformer.py` – Complete encoder-decoder Transformer architecture
@@ -9,7 +13,10 @@ It includes:
 - `train.py` – Training loop with checkpointing and simple inference testing
 - `app.py` – Streamlit application for model demo
 
-The model follows the original *"Attention is All You Need"* architecture with modern improvements (pre-norm, proper masking).
+The model follows the original *"Attention is All You Need"* (Vaswani et al., 2017) architecture with modern improvements:
+- *Pre-Normalization* (Pre-Norm) for stable training.
+- *Key-Value Caching* for *O(1)* generation latency.
+- *Sliding Window Context Management* to handle long-sequence generation without memory crashes.
 
 ## Model Architecture
 
@@ -19,7 +26,7 @@ The model follows the original *"Attention is All You Need"* architecture with m
 - **Embedding Dimension**: `n_embd = 256`
 - **Context Length**: `context_length = 64`
 - **Number of Layers**: `n_layers = 6` (both encoder and decoder)
-- **Number of Attention Heads**: `n_heads = 6` (head size = 256 / 6 ≈ 42)
+- **Number of Attention Heads**: `n_heads = 8` (head size = 256 / 8 = 32)
 - **Feed-Forward Hidden Size**: 4 × 256 = 1024
 - **Dropout**: `0.2`
 
@@ -37,6 +44,7 @@ The model follows the original *"Attention is All You Need"* architecture with m
 3. **Decoder** (6 layers)
    - Masked multi-head **self-attention** (causal + padding)
    - Multi-head **cross-attention** (queries from decoder, keys/values from encoder)
+   - Supports KV Caching for masked multi head self-attention
    - Feed-forward network
    - Pre-layer normalization + residual connections
    - Supports target padding mask and source padding mask
@@ -51,6 +59,7 @@ Approximately **~9–12 million** (exact count printed during training).
 ## Features
 
 - Full support for **padding masks** (both source and target)
+- **Key-Value (KV) Caching** for *O(1)* generation latency
 - **Causal masking** in decoder self-attention
 - **Teacher forcing** during training
 - **Autoregressive generation** with:
@@ -169,18 +178,30 @@ Run this for demo of the model, in which you can provide your input for translat
 
 ## Customization
 
-Edit hyperparameters in `models/transformer.py` or at the top of files:
-Edit hyperparameters in `models/transformer.py` or at the top of files:
+Edit hyperparameters in `models/transformer.py` at the top of the file:
 
 ```python
 n_embd = 256
 context_length = 64
-n_layers = 6
-n_heads = 6
 dropout = 0.2
-batch_size = 32
-max_iters = 5_000
+n_heads = 8
+n_layers = 6
+```
+
+Edit hyperparameters in `train.py` at the top of the file:
+
+```python
 lr = 3e-4
+max_iters = 10_000
+eval_iters = 200
+eval_interval = 500
+```
+
+Edit hyperparameters in `data/dataloader.py` at the top of the file:
+
+```python
+context_length = 64
+batch_size = 32
 ```
 
 ---

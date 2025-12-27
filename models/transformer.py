@@ -7,52 +7,57 @@ from data.dataloader import vocab_size_eng, vocab_size_fr
 n_embd = 256
 context_length = 64
 dropout = 0.2
-n_heads = 6
+n_heads = 8
 n_layers = 6
 
-class Head(nn.Module):
-    '''A single attention head, supports: self-attention, cross-attention, masked-self-attention'''
+class MultiHeadAttention(nn.Module):
+    '''Multiple attention heads in parallel'''
     
-    def __init__(self, head_size, masked=False):
+    def __init__(self, n_heads, head_size, masked=False):
         super().__init__()
-        # key, query and value vector layers
-        self.key = nn.Linear(n_embd, head_size, bias=False)
-        self.query = nn.Linear(n_embd, head_size, bias=False)
-        self.value = nn.Linear(n_embd, head_size, bias=False)
+        self.n_heads = n_heads
+        self.head_size = head_size
         self.masked = masked
         
-        # mask for masking future tokens
-        if self.masked is True:
-            self.register_buffer('tril', torch.tril(torch.ones(context_length, context_length, dtype=torch.bool)))
-        
+        self.key = nn.Linear(n_embd, n_embd, bias=False)
+        self.query = nn.Linear(n_embd, n_embd, bias=False)
+        self.value = nn.Linear(n_embd, n_embd, bias=False)
+        self.proj = nn.Linear(n_embd, n_embd)
         self.dropout = nn.Dropout(dropout)
+        
+        self.k_cache = None
+        self.v_cache = None
+        self.cache_pos = 0
+        
+    def reset_cache(self):
+        self.k_cache = None
+        self.v_cache = None
+        self.cache_pos = 0
     
-    def forward(self, q_input: torch.Tensor, kv_input: Optional[torch.Tensor] = None, attn_mask : Optional[torch.BoolTensor] = None):
+    def forward(self, q_input: torch.Tensor, kv_input: Optional[torch.Tensor] = None, attn_mask: Optional[torch.BoolTensor] = None, use_cache: bool = False):
         """
         q_input: (B, Tq, C) # queries
         kv_input: (B, Tk, C) or None, if None -> self attention 
         attn_mask: optional attn_mask (padding / self mask), shapes: (Tk,), (Tq,Tk), (B,Tk), (B,1,Tk), (B,Tq,Tk)
+        use_cache: boolean to denote whether to use kv cache or not
         returns (B, Tq, HS)
         """
+        # if no kv_input is provided, its self attention
         if kv_input is None:
             kv_input = q_input
-            
-        B, Tq, _ = q_input.shape
-        _, Tk, _ = kv_input.shape
         
-        # Get the key, query and value vectors for the input x
-        k = self.key(kv_input)     # shape: (B, Tk, HS)
-        q = self.query(q_input)   # shape: (B, Tq, HS)
-        v = self.value(kv_input)   # shape: (B, Tk, HS)
-        # large negative value to mask unnecessary tokens
+        B, Tq, C = q_input.shape
+        _, Tk, _ = kv_input.shape
         large_neg = -1e9
         
-        # compute attention scores using scaled dot-product
-        weights = q @ k.transpose(-2, -1) * k.shape[-1] ** -0.5 # (B, Tq, HS) @ (B, HS, Tk) --> (B, Tq, Tk)
-        # mask future tokens for decoder
-        if self.masked is True:
-            causal = self.tril[:Tq, :Tk]
-            weights = weights.masked_fill(~causal.unsqueeze(0), large_neg) # (Tq, Tk) --> (1, Tq, Tk)
+        # compute q, k and v vectors seperately
+        q = self.query(q_input)
+        k = self.key(kv_input)
+        v = self.value(kv_input)
+        # reshape for multi-head attention
+        q = q.view(B, Tq, self.n_heads, self.head_size).transpose(1, 2)
+        k = k.view(B, Tk, self.n_heads, self.head_size).transpose(1, 2)
+        v = v.view(B, Tk, self.n_heads, self.head_size).transpose(1, 2)
         
         if attn_mask is not None:
             # convert the data type to bool
@@ -63,8 +68,8 @@ class Head(nn.Module):
                 # shape: (Tk,) -> (1, Tk)
                 attn_mask = attn_mask.unsqueeze(0)
             elif attn_mask.dim() == 2:
-                # shape: (Tq, Tk) (global) or (B, Tk) (per batch)
-                if attn_mask.shape[0] == B and attn_mask.shape[1] == Tk:
+                # shape: (Tq, Tk) [Global] or (B, Tk) [Per Batch]
+                if attn_mask.size(0) == B and attn_mask.size(1) == Tk:
                     # (B, Tk) -> (B, 1, Tk)
                     attn_mask = attn_mask.unsqueeze(1)
                 else:
@@ -75,42 +80,79 @@ class Head(nn.Module):
                 pass
             else:
                 raise ValueError("attn_mask must be (Tq, Tk), (B, Tk) or (B, 1, Tk) or (B, Tq, Tk)")
+            
+        if use_cache:
+            # kv cache path
+            if self.k_cache is None:
+                # initalize cache
+                self.k_cache = torch.zeros(
+                    (B, self.n_heads, context_length, self.head_size),
+                    dtype=q_input.dtype, device=q_input.device
+                )
+                self.v_cache = torch.zeros_like(self.k_cache)
+                self.cache_pos = 0
+            
+            # if cache is full, then reset
+            if self.cache_pos + Tk > context_length:
+                self.k_cache.zero_()
+                self.v_cache.zero_()
+                self.cache_pos = 0
+            
+            old_k = self.k_cache[:, :, :self.cache_pos]
+            old_v = self.v_cache[:, :, :self.cache_pos]
+            # use the full cache for attention
+            full_k = torch.cat([old_k, k], dim=2)
+            full_v = torch.cat([old_v, v], dim=2)
+            total_len = self.cache_pos + Tq
+            
+            weights = (q @ full_k.transpose(-2, -1)) * (self.head_size ** -0.5)
+            # apply causal mask if required
+            if self.masked:
+                if Tq == 1:
+                    causal_mask = torch.ones(Tq, total_len, device=q_input.device, dtype=torch.bool)
+                else:
+                    causal_mask = torch.tril(torch.ones(Tq, total_len, device=q_input.device, dtype=torch.bool))
+                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), large_neg)
+            
+            # padding mask
+            if attn_mask is not None:
+                if attn_mask.dim() == 3:
+                    broadcasting_mask = attn_mask.unsqueeze(1)
+                else:
+                    broadcasting_mask = attn_mask
+                weights = weights.masked_fill(~broadcasting_mask, large_neg)
+            
+            weights = F.softmax(weights, dim=-1)
+            weights = self.dropout(weights)
+            out = weights @ full_v
+            
+            # store new K/V in cache
+            self.k_cache[:, :, self.cache_pos:self.cache_pos + Tk] = k
+            self.v_cache[:, :, self.cache_pos:self.cache_pos + Tk] = v
+            self.cache_pos += Tk
+        else:
+            # standard path
+            weights = (q @ k.transpose(-2, -1)) * (self.head_size ** -0.5)
+            # apply causal mask if required
+            if self.masked:
+                causal_mask = torch.tril(torch.ones(Tq, Tk, device=q_input.device, dtype=torch.bool))
+                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), large_neg)
         
-            if attn_mask.dim() == 3 and attn_mask.size(1) == 1:
-                attn_mask = attn_mask.expand(weights.size(0), weights.size(1), weights.size(2))
-            weights = weights.masked_fill(~attn_mask, large_neg)
+            # padding mask
+            if attn_mask is not None:
+                if attn_mask.dim() == 3:
+                    broadcasting_mask = attn_mask.unsqueeze(1)
+                else:
+                    broadcasting_mask = attn_mask
+                weights = weights.masked_fill(~broadcasting_mask, large_neg)
+                
+            weights = F.softmax(weights, dim=-1)
+            weights = self.dropout(weights)
+            out = weights @ v # shape: (batch, n_heads, time, head_size)
         
-        # normalize weights accross row
-        weights = F.softmax(weights, dim=-1)
-        weights = self.dropout(weights)
-        
-        out = weights @ v
-        return out
-
-class MultiHeadAttention(nn.Module):
-    '''Multiple Attention heads working in parallel'''
+        out = out.transpose(1, 2).contiguous().view(B, Tq, C) # shape: (batch, time, channel)
+        return self.proj(out)
     
-    def __init__(self, n_heads, head_size, masked=False):
-        super().__init__()
-        # multiple attention heads
-        self.heads = nn.ModuleList([Head(head_size, masked) for _ in range(n_heads)])
-        self.proj = nn.Linear(n_heads * head_size, n_embd)
-        self.dropout = nn.Dropout(dropout)
-    
-    def forward(self, q_input: torch.Tensor, kv_input: Optional[torch.Tensor] = None, attn_mask: Optional[torch.BoolTensor] = None):
-        """
-        q_input: (B, Tq, C) # queries
-        kv_input: (B, Tk, C) or None 
-        attn_mask: optional attn_mask (padding / self mask)
-        returns (B, Tq, n_embd)
-        """
-        # concatenate the outputs of all the attention heads
-        head_outputs = [h(q_input, kv_input=kv_input, attn_mask=attn_mask) for h in self.heads]
-        x = torch.cat(head_outputs, dim=-1)  # shape: (Batch, Time, n_heads * head_size)
-        x = self.proj(x)    # shape: (Batch, Time, n_embd)
-        x = self.dropout(x)
-        return x
-
 class FeedForwardNetwork(nn.Module):
     '''A simple ffwd network with linear layer followed by non-linear layer'''
     
@@ -152,7 +194,7 @@ class EncoderBlock(nn.Module):
         else:
             attn_mask = None
             
-        x = x + self.self_attn(self.ln1(x), attn_mask=attn_mask)  # residual connection with sa heads and pre-layer-normalization
+        x = x + self.self_attn(self.ln1(x), attn_mask=attn_mask, use_cache=False)  # residual connection with sa heads and pre-layer-normalization
         x = x + self.ffwd(self.ln2(x))  # residual connection with ffwd network and pre-layer-normalization
         return x
 
@@ -173,11 +215,12 @@ class DecoderBlock(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
         self.ln3 = nn.LayerNorm(n_embd)
     
-    def forward(self, x, encoder_output, tgt_key_padding_mask: Optional[torch.BoolTensor] = None, memory_key_padding_mask: Optional[torch.BoolTensor] = None):
+    def forward(self, x, encoder_output, tgt_key_padding_mask: Optional[torch.BoolTensor] = None, memory_key_padding_mask: Optional[torch.BoolTensor] = None, use_cache=False):
         """
         x: position and token embedded input
         tgt_key_padding_mask: Mask for decoder self-attention
         memory_key_padding_mask: Mask for cross-attention
+        use_cache: boolean to denote whether to use kv cache or not
         """
         if tgt_key_padding_mask is not None:
             tgt_mask = tgt_key_padding_mask.unsqueeze(1)
@@ -189,8 +232,10 @@ class DecoderBlock(nn.Module):
         else:
             memory_mask = None
             
-        x = x + self.self_attn(self.ln1(x), attn_mask=tgt_mask) # residual connection with self attention and pre-layer-normalization
-        x = x + self.cross_attn(self.ln2(x), kv_input=encoder_output, attn_mask=memory_mask)  # residual connection with cross attention and pre-layer-normalization
+        # self attention uses kv caching
+        x = x + self.self_attn(self.ln1(x), attn_mask=tgt_mask, use_cache=use_cache) # residual connection with self attention and pre-layer-normalization
+        # cross attention does not use kv caching 
+        x = x + self.cross_attn(self.ln2(x), kv_input=encoder_output, attn_mask=memory_mask, use_cache=False)  # residual connection with cross attention and pre-layer-normalization
         x = x + self.ffwd(self.ln3(x))  # residual connection with ffwd network and pre-layer-normalization
         return x
         
@@ -224,11 +269,11 @@ class Transformer(nn.Module):
         _, T_tgt = tgt_ids.shape
         device = src_ids.device
         
-        source_pos = torch.arange(T_src, device=device)
-        target_pos = torch.arange(T_tgt, device=device)
+        src_pos = torch.arange(T_src, device=device)
+        tgt_pos = torch.arange(T_tgt, device=device)
         # input contains both token embedding as well as position embedding
-        src = self.src_token_embedding_table(src_ids) + self.position_embedding_table(source_pos)
-        tgt = self.tgt_token_embedding_table(tgt_ids) + self.position_embedding_table(target_pos)
+        src = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
+        tgt = self.tgt_token_embedding_table(tgt_ids) + self.position_embedding_table(tgt_pos)
         
         enc = src
         for block in self.encoder:
@@ -236,13 +281,15 @@ class Transformer(nn.Module):
         # passing encoder outputs as inputs to the decoder cross-attention
         dec = tgt
         for block in self.decoder:
-            dec = block(dec, encoder_output=enc, tgt_key_padding_mask=tgt_mask, memory_key_padding_mask=src_mask)
+            dec = block(dec, encoder_output=enc, tgt_key_padding_mask=tgt_mask, memory_key_padding_mask=src_mask, use_cache=False)
         out = self.ln_f(dec)
         logits = self.lm_head(out)
         
         if target is None:
+            # if target is not provided, then we cannot compute loss
             loss = None
         else:
+            # if target is provided, compute loss
             B, T, C = logits.shape
             labels = target.clone()
             if tgt_mask is not None:
@@ -253,7 +300,8 @@ class Transformer(nn.Module):
             labels = labels.view(B*T,) # shape: (N,)
             loss = F.cross_entropy(logits, labels, ignore_index=-100, label_smoothing=0.1)
         return logits, loss
-                
+        
+    @torch.no_grad()        
     def generate(
         self,
         src_ids: torch.LongTensor,
@@ -334,6 +382,146 @@ class Transformer(nn.Module):
         
             if eos_token is not None:
                 # check to see if a sequence is finished
+                just_finished = next_token.unsqueeze(1) == eos_token
+                finished = finished | just_finished if finished is not None else just_finished
+                if finished.all():
+                    break
+        
+        return generated
+
+    def generate_with_cache(
+        self,
+        src_ids: torch.LongTensor,
+        idx: torch.tensor,
+        max_new_tokens: int,
+        src_mask: Optional[torch.BoolTensor] = None,
+        temperature: float = 1.0,
+        do_sample: bool = False,
+        top_k: Optional[int] = None,
+        eos_token: Optional[int] = None
+    ):
+        '''
+        src_ids: (B, T_src) source token ids
+        idx: (B, T_start) initial decoder token ids (prompt)
+        max_new_tokens: number of tokens to generate
+        src_mask: optional (B, T_src) boolean mask where True = valid (encoder pads)
+        temperature: sampling temperature (controls the creativity of the model)
+        do_sample: if True sample, else greedy argmax 
+        top_k: if sampling and top_k provided, restrict to top_k (controls the diversity of sampling)
+        eos_token: if provided, stop per-sequence when eos is generated
+        returns: Tensor (B, T_start + gen) with generated token ids
+        '''
+        self.eval()
+        # reset cache
+        for block in self.decoder:
+            block.self_attn.reset_cache()
+            
+        device = src_ids.device
+        B, T_src = src_ids.shape
+        
+        # process encoder (once)
+        src_pos = torch.arange(T_src, device=device)
+        src_embd = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
+        enc_output = src_embd
+        for block in self.encoder:
+            enc_output = block(enc_output, src_key_padding_mask=src_mask)
+        
+        # initial decoder fill
+        # we assume that idx is the prompt (<sos>)
+        generated = idx.clone().to(device)
+        finished = torch.zeros(B, dtype=torch.bool, device=device) if eos_token is not None else None
+        seq_len = idx.size(1)
+        
+        tgt_pos = torch.arange(seq_len, device=device)
+        tgt_embd = self.tgt_token_embedding_table(idx) + self.position_embedding_table(tgt_pos)
+        dec_output = tgt_embd
+        for block in self.decoder:
+            dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
+        out = self.ln_f(dec_output)
+        logits = self.lm_head(out)
+        # take only the last logit
+        last_logits = logits[:, -1, :]
+        
+        if temperature != 1.0 and temperature > 0.0:
+            last_logits = last_logits / temperature
+                
+        # sample/argmax logic
+        if do_sample:
+            probs = F.softmax(last_logits, dim=-1)
+            if top_k is not None and top_k > 0:
+                topk_vals, topk_idxs = probs.topk(top_k, dim=-1)
+                min_topk = topk_vals[..., -1].unsqueeze(-1)
+                allowed_mask = probs >= min_topk
+                probs = probs * allowed_mask.to(probs.dtype)
+                probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
+            next_token = torch.multinomial(probs, num_samples=1)
+        else:
+            next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
+        
+        generated = torch.cat([generated, next_token], dim=1)
+        idx = torch.cat([idx, next_token], dim=1)
+        seq_len += 1
+        
+        # generation loop
+        for _ in range(1, max_new_tokens):
+            # chunking logic
+            if seq_len >= context_length:
+                # recover the last half of the tokens
+                recover_len = context_length // 2
+                context_window = generated[:, -recover_len:]
+                
+                # hard reset cache
+                for block in self.decoder:
+                    block.self_attn.reset_cache()
+                    
+                # re-fill cache with the window
+                # we need to re-calculate the embeddings for the window
+                # Note - we reset position ids to 0..recover_len to match the reset cache
+                tgt_pos = torch.arange(recover_len, device=device)
+                tgt_embd = self.tgt_token_embedding_table(context_window) + self.position_embedding_table(tgt_pos)
+                dec_output = tgt_embd
+                for block in self.decoder:
+                    dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
+                
+                idx = context_window
+                seq_len = recover_len
+                    
+            # we are feeding 1 token. Position is relative to current cache size
+            last_token = idx[:, -1:]
+            start_pos = seq_len - 1
+            
+            # calculate embedding for just this 1 token
+            pos_id = torch.tensor([start_pos], device=device)
+            tgt_embd = self.tgt_token_embedding_table(last_token) + self.position_embedding_table(pos_id)
+            dec_output = tgt_embd
+            for block in self.decoder:
+                dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
+            out = self.ln_f(dec_output)
+            logits = self.lm_head(out)
+            last_logits = logits[:, -1, :]
+            
+            if temperature != 1.0 and temperature > 0.0:
+                last_logits = last_logits / temperature
+            
+            # sample/argmax logic
+            if do_sample:
+                probs = F.softmax(last_logits, dim=-1)
+                if top_k is not None and top_k > 0:
+                    topk_vals, topk_idxs = probs.topk(top_k, dim=-1)
+                    min_topk = topk_vals[..., -1].unsqueeze(-1)
+                    allowed_mask = probs >= min_topk
+                    probs = probs * allowed_mask.to(probs.dtype)
+                    probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
+            
+            generated = torch.cat([generated, next_token], dim=1)
+            idx = torch.cat([idx, next_token], dim=1)
+            seq_len += 1
+            
+            # eos check
+            if eos_token is not None:
                 just_finished = next_token.unsqueeze(1) == eos_token
                 finished = finished | just_finished if finished is not None else just_finished
                 if finished.all():

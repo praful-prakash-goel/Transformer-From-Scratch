@@ -31,6 +31,8 @@ vocab_size_eng = len(eng_chars) + 4
 vocab_size_fr = len(fr_chars) + 4 # for special tokens
 
 class CharTokenizer:
+    '''A custom character tokenizer'''
+    
     def __init__(self, chars, specials=('<pad>', '<unk>', '<bos>', '<eos>')):
         self.specials = list(specials)
         self.chars = self.specials + sorted(set(chars))

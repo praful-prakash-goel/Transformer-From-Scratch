@@ -6,7 +6,7 @@ import os
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 checkpoint_path = 'saved_models/best_checkpoint.pt'
 lr = 3e-4
-max_iters = 5_000
+max_iters = 10_000
 eval_iters = 200
 eval_interval = 500
 
@@ -37,21 +37,23 @@ def estimate_loss(model):
     return outputs
 
 def train_model():
+    # build model
     model = build_model(device=device)
     print(f">> {sum(p.numel() for p in model.parameters())/1e6}M Parameters")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
+    # load a pretrained model if exists
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         best_val_loss = checkpoint['val_loss']
         print(f"Restored model from checkpoint with val loss: {checkpoint['val_loss']}")
-        
     else:
         best_val_loss = float('inf')
 
+    # training loop
     for iter in range(max_iters):
         # evaluate model after an interval
         if iter % eval_interval == 0 or iter == max_iters-1:
@@ -59,6 +61,7 @@ def train_model():
             train_loss, val_loss = losses['train'], losses['val']
             print(f">> Step {iter} - train_loss: {train_loss}, val_loss: {val_loss}")
             
+            # if current loss is less than min loss, then save the model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 checkpoint = {
@@ -85,7 +88,7 @@ def train_model():
         # tgt label is input shifted by 1
         tgt_labels = tgt_ids[:, 1:]
         
-        logits, loss = model(src_ids, tgt_inputs, src_mask, tgt_ip_mask, tgt_labels)
+        _, loss = model(src_ids, tgt_inputs, src_mask, tgt_ip_mask, tgt_labels)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
