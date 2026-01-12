@@ -5,7 +5,7 @@
 
 # English to French Translation Transformer from Scratch
 
-This repository implements a **full Transformer model from scratch** in PyTorch featuring **Key-Value (KV) Caching** for efficient inference and **Rotary Positional Embedding (RoPE)** to allow the transformer model to understand relative positions and not just absolute positions.. It is trained on **character-level English → French machine translation**.
+This repository implements a **full Transformer model from scratch** in PyTorch featuring **Key-Value (KV) Caching** for efficient inference and **Rotary Positional Embedding (RoPE)** to allow the transformer model to understand relative positions and not just absolute positions. It is trained on **character-level English → French machine translation**.
 
 It includes:
 - `models/transformer.py` – Complete encoder-decoder Transformer architecture
@@ -172,7 +172,7 @@ Run this for demo of the model, in which you can provide your input for translat
 ## Example Output (after sufficient training)
 
 ```text
->> English: i am a student
+>> English: I am a student
 >> French: je suis étudiant
 >> English: I am going home
 >> French: je rentre à la maison
