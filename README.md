@@ -1,10 +1,11 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=for-the-badge&logo=PyTorch&logoColor=white) 
 ![Status](https://img.shields.io/badge/Status-Educational-yellow)
 ![KV Cache](https://img.shields.io/badge/KV_Cache-Enabled-success)
+![RoPE](https://img.shields.io/badge/RoPE-Enabled-success)
 
 # English to French Translation Transformer from Scratch
 
-This repository implements a **full Transformer model from scratch** in PyTorch featuring **Key-Value (KV) Caching** for efficient inference. It is trained on **character-level English → French machine translation**.
+This repository implements a **full Transformer model from scratch** in PyTorch featuring **Key-Value (KV) Caching** for efficient inference and **Rotary Positional Embedding (RoPE)** to allow the transformer model to understand relative positions and not just absolute positions.. It is trained on **character-level English → French machine translation**.
 
 It includes:
 - `models/transformer.py` – Complete encoder-decoder Transformer architecture
@@ -16,6 +17,7 @@ It includes:
 The model follows the original *"Attention is All You Need"* (Vaswani et al., 2017) architecture with modern improvements:
 - *Pre-Normalization* (Pre-Norm) for stable training.
 - *Key-Value Caching* for *O(1)* generation latency.
+- *Rotary Positional Embedding* for understanding relative positions.
 - *Sliding Window Context Management* to handle long-sequence generation without memory crashes.
 
 ## Model Architecture
@@ -32,8 +34,9 @@ The model follows the original *"Attention is All You Need"* (Vaswani et al., 20
 
 ### Key Components
 
-1. **Shared Learned Positional Embeddings**
-   Added to both source (English) and target (French) token embeddings.
+1. **Token + Position Embeddings**
+   - Learned token embedding table: `(vocab_size, n_emb)` for both src ids and tgt ids
+   - Rotary Position Embedding: Fixed sinusoidal embeddings (0 learnable parameters)
 
 2. **Encoder** (6 layers)
    - Unmasked multi-head **self-attention**
@@ -60,6 +63,7 @@ Approximately **~9–12 million** (exact count printed during training).
 
 - Full support for **padding masks** (both source and target)
 - **Key-Value (KV) Caching** for *O(1)* generation latency
+- **Rotary Positional Embedding (RoPE)** which replaces absolute embeddings with relative positional encoding, allowing for better generalization on longer sequences
 - **Causal masking** in decoder self-attention
 - **Teacher forcing** during training
 - **Autoregressive generation** with:
@@ -149,7 +153,7 @@ python train.py
 The script will:
 
 - Build character vocabularies for English and French
-- Train for 5000 iterations
+- Train for 15000 iterations
 - Evaluate on train/val splits every 500 steps
 - Save the best model as `saved_models/best_checkpoint.pt`
 - After training, you can run `app.py` for demo of the model
@@ -191,8 +195,9 @@ n_layers = 6
 Edit hyperparameters in `train.py` at the top of the file:
 
 ```python
-lr = 3e-4
-max_iters = 10_000
+lr = 1.5e-4
+max_iters = 15_000
+warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500
 ```
@@ -215,10 +220,18 @@ batch_size = 32
 
 ---
 
-## Credits
+## References
 
+1.  **Attention Is All You Need** (Vaswani et al., 2017)
+    * [arXiv:1706.03762](https://arxiv.org/abs/1706.03762)
+    * *The foundational paper that introduced the Transformer architecture and Self-Attention mechanism.*
+
+2.  **RoFormer: Enhanced Transformer with Rotary Position Embedding** (Su et al., 2021)
+    * [arXiv:2104.09864](https://arxiv.org/abs/2104.09864)
+    * *The paper introducing RoPE, which I implemented to replace standard absolute positional embeddings.*
+
+## Credits
 Inspired by:
 
-- Original Transformer paper: *"[Attention is All You Need](https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf)"* by Vaswani et al.
 - Andrej Karpathy’s nanoGPT and *"[Let's build GPT](https://youtu.be/kCc8FmEb1nY)"* lecture
 - PyTorch official Transformer tutorials

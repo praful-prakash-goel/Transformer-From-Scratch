@@ -10,6 +10,73 @@ dropout = 0.2
 n_heads = 8
 n_layers = 6
 
+class RotaryEmbedding(nn.Module):
+    """
+    Rotary Positional Embedding (RoPE)
+    Apply rotation to query and key tensors
+    """
+    
+    def __init__(self, dim, max_seq_len, base=10_000):
+        super().__init__()
+        assert dim % 2 == 0, "RoPE dimension must be even"
+        self.dim = dim
+        self.max_seq_len = max_seq_len
+        self.base = base
+        
+        # it implements the formula theta_i = base^(-2i/d)
+        # early dimensions have higher frequency and later dimensions have lower frequency
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, dim, 2).float() / dim)
+        )
+        self.register_buffer('inv_freq', inv_freq, persistent=False)
+        
+        # pre-compute entire table for max_seq_len
+        t = torch.arange(max_seq_len).float()
+        # angle = time x speed; i -> time, j -> speed, ij -> grid
+        freqs = torch.einsum("i,j->ij", t, inv_freq) # (max_seq_len, head_dim / 2)
+        
+        # cache cos and sin tables
+        self.register_buffer("cos_cached", freqs.cos(), persistent=False)
+        self.register_buffer("sin_cached", freqs.sin(), persistent=False)
+        
+    def forward(self, seq_len, device, offset=0):
+        """
+        Lookup cos and sin matrices for seq_len
+        """
+        if offset + seq_len > self.max_seq_len:
+            # if somehow we exceed max_seq_len, then dynamically recalculate (fallback)
+            position = torch.arange(seq_len, device=device).float() + offset
+            freqs = torch.einsum("i,j->ij", position, self.inv_freq) # (seq_len, head_dim / 2)
+            return freqs.cos(), freqs.sin()
+
+        # fast path: slice the cached table
+        return (
+            self.cos_cached[offset : offset + seq_len, :].to(device),
+            self.sin_cached[offset : offset + seq_len, :].to(device)
+        )
+    
+def rotate_half(x):
+    # x's shape: (batch, heads, seq_len, head_dim)
+    
+    # rotates the last dimension pairs
+    x1 = x[..., ::2] # take indices 0, 2, 4... (The 'x' coordinates)
+    x2 = x[..., 1::2] # take indices 1, 3, 5... (The 'y' coordinates)
+    
+    return torch.stack((-x2, x1), dim=-1).flatten(-2)
+
+def apply_rope(q, k, cos, sin):
+    # expand cos and sin to full head dimension
+    cos = torch.repeat_interleave(cos, 2, dim=-1) # [c1, c2] -> [c1, c1, c2, c2]
+    sin = torch.repeat_interleave(sin, 2, dim=-1) # [s1, s2] -> [s1, s1, s2, s2]
+    
+    cos = cos.unsqueeze(0).unsqueeze(0) # (1, 1, seq_len, head_dim)
+    sin = sin.unsqueeze(0).unsqueeze(0) # (1, 1, seq_len, head_dim)
+    
+    q_rot = (q * cos) + (rotate_half(q) * sin)
+    k_rot = (k * cos) + (rotate_half(k) * sin)
+    
+    return q_rot, k_rot
+
 class MultiHeadAttention(nn.Module):
     '''Multiple attention heads in parallel'''
     
@@ -24,6 +91,7 @@ class MultiHeadAttention(nn.Module):
         self.value = nn.Linear(n_embd, n_embd, bias=False)
         self.proj = nn.Linear(n_embd, n_embd)
         self.dropout = nn.Dropout(dropout)
+        self.rope = RotaryEmbedding(self.head_size, max_seq_len=context_length)
         
         self.k_cache = None
         self.v_cache = None
@@ -58,6 +126,13 @@ class MultiHeadAttention(nn.Module):
         q = q.view(B, Tq, self.n_heads, self.head_size).transpose(1, 2)
         k = k.view(B, Tk, self.n_heads, self.head_size).transpose(1, 2)
         v = v.view(B, Tk, self.n_heads, self.head_size).transpose(1, 2)
+        
+        is_self_attn = kv_input is q_input
+        if is_self_attn:
+            # apply rotary position embedding only in self attention
+            rope_offset = self.cache_pos if use_cache else 0
+            cos, sin = self.rope(seq_len=Tq, device=q_input.device, offset=rope_offset)
+            q, k = apply_rope(q, k, cos, sin)
         
         if attn_mask is not None:
             # convert the data type to bool
@@ -242,13 +317,11 @@ class DecoderBlock(nn.Module):
 class Transformer(nn.Module):
     '''Full-fledged transformer with multiple encoder blocks followed by multiple decoder blocks'''
     
-    def __init__(self, src_vocab_size, tgt_vocab_size):
+    def __init__(self, src_vocab_size, tgt_vocab_size, src_pad_id=0, tgt_pad_id=0):
         super().__init__()
         # each token directly reads the embedding for the next token from the look up table
-        self.src_token_embedding_table = nn.Embedding(src_vocab_size, n_embd)
-        self.tgt_token_embedding_table = nn.Embedding(tgt_vocab_size, n_embd)
-        # position embedding table will capture positional information
-        self.position_embedding_table = nn.Embedding(context_length, n_embd)
+        self.src_token_embedding_table = nn.Embedding(src_vocab_size, n_embd, padding_idx=src_pad_id)
+        self.tgt_token_embedding_table = nn.Embedding(tgt_vocab_size, n_embd, padding_idx=tgt_pad_id)
         # multiple encoder blocks
         self.encoder = nn.ModuleList([EncoderBlock(n_heads, n_embd) for _ in range(n_layers)])
         # multiple decoder blocks
@@ -269,11 +342,9 @@ class Transformer(nn.Module):
         _, T_tgt = tgt_ids.shape
         device = src_ids.device
         
-        src_pos = torch.arange(T_src, device=device)
-        tgt_pos = torch.arange(T_tgt, device=device)
-        # input contains both token embedding as well as position embedding
-        src = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
-        tgt = self.tgt_token_embedding_table(tgt_ids) + self.position_embedding_table(tgt_pos)
+        # input contains both token embedding as well as position embedding (RoPE handles position inside the blocks)
+        src = self.src_token_embedding_table(src_ids)
+        tgt = self.tgt_token_embedding_table(tgt_ids)
         
         enc = src
         for block in self.encoder:
@@ -331,8 +402,7 @@ class Transformer(nn.Module):
         # while training assumes that the entire tgt sequence is known in advance and processed in parallel
         # for fixed source input, the encoder output (memory) is invariant, so we run the encoder once and reuse
         # its output during decoding to avoid redundant computation
-        src_pos = torch.arange(T_src, device=device)
-        src_embd = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
+        src_embd = self.src_token_embedding_table(src_ids) # RoPE handles position inside the blocks
         enc_output = src_embd
         for block in self.encoder:
             enc_output = block(enc_output, src_key_padding_mask=src_mask)
@@ -345,11 +415,9 @@ class Transformer(nn.Module):
         for _ in range(max_new_tokens):
             # crop idx upto context length
             idx_cond = generated[:, -context_length:] if generated.size(1) > context_length else generated
-            T_cond = idx_cond.size(1)
             
             # pass the tokens generated till now into the decoder
-            tgt_pos = torch.arange(T_cond, device=device)
-            tgt_embd = self.tgt_token_embedding_table(idx_cond) + self.position_embedding_table(tgt_pos)
+            tgt_embd = self.tgt_token_embedding_table(idx_cond)
             dec_output = tgt_embd
             for block in self.decoder:
                 dec_output = block(dec_output, encoder_output=enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask)
@@ -420,8 +488,7 @@ class Transformer(nn.Module):
         B, T_src = src_ids.shape
         
         # process encoder (once)
-        src_pos = torch.arange(T_src, device=device)
-        src_embd = self.src_token_embedding_table(src_ids) + self.position_embedding_table(src_pos)
+        src_embd = self.src_token_embedding_table(src_ids)
         enc_output = src_embd
         for block in self.encoder:
             enc_output = block(enc_output, src_key_padding_mask=src_mask)
@@ -432,8 +499,7 @@ class Transformer(nn.Module):
         finished = torch.zeros(B, dtype=torch.bool, device=device) if eos_token is not None else None
         seq_len = idx.size(1)
         
-        tgt_pos = torch.arange(seq_len, device=device)
-        tgt_embd = self.tgt_token_embedding_table(idx) + self.position_embedding_table(tgt_pos)
+        tgt_embd = self.tgt_token_embedding_table(idx)
         dec_output = tgt_embd
         for block in self.decoder:
             dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
@@ -477,8 +543,7 @@ class Transformer(nn.Module):
                 # re-fill cache with the window
                 # we need to re-calculate the embeddings for the window
                 # Note - we reset position ids to 0..recover_len to match the reset cache
-                tgt_pos = torch.arange(recover_len, device=device)
-                tgt_embd = self.tgt_token_embedding_table(context_window) + self.position_embedding_table(tgt_pos)
+                tgt_embd = self.tgt_token_embedding_table(context_window)
                 dec_output = tgt_embd
                 for block in self.decoder:
                     dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
@@ -491,8 +556,7 @@ class Transformer(nn.Module):
             start_pos = seq_len - 1
             
             # calculate embedding for just this 1 token
-            pos_id = torch.tensor([start_pos], device=device)
-            tgt_embd = self.tgt_token_embedding_table(last_token) + self.position_embedding_table(pos_id)
+            tgt_embd = self.tgt_token_embedding_table(last_token)
             dec_output = tgt_embd
             for block in self.decoder:
                 dec_output = block(dec_output, enc_output, tgt_key_padding_mask=None, memory_key_padding_mask=src_mask, use_cache=True)
@@ -530,9 +594,13 @@ class Transformer(nn.Module):
         return generated
     
 def build_model(device):
+    from data.dataloader import eng_tokenizer, fr_tokenizer
+    
     model = Transformer(
         src_vocab_size=vocab_size_eng,
-        tgt_vocab_size=vocab_size_fr
+        tgt_vocab_size=vocab_size_fr,
+        src_pad_id=eng_tokenizer.pad,
+        tgt_pad_id=fr_tokenizer.pad
     )
     model.to(device=device)
     return model

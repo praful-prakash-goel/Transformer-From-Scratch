@@ -2,11 +2,13 @@ from models.transformer import build_model
 from data.dataloader import get_batch_and_padding, vocab_size_eng, vocab_size_fr, eng_tokenizer, fr_tokenizer
 import torch
 import os
+import math
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 checkpoint_path = 'saved_models/best_checkpoint.pt'
-lr = 3e-4
-max_iters = 10_000
+lr = 1.5e-4
+max_iters = 15_000
+warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500
 
@@ -36,12 +38,19 @@ def estimate_loss(model):
     model.train()
     return outputs
 
+def get_lr(step, base_lr, warmup_steps, total_steps):
+    """Learning rate warmup"""
+    if step < warmup_steps:
+        return base_lr * (step + 1) / warmup_steps
+    progress = (step - warmup_steps) / (total_steps - warmup_steps)
+    return base_lr * 0.5 * (1 + math.cos(math.pi * progress))
+    
 def train_model():
     # build model
     model = build_model(device=device)
     print(f">> {sum(p.numel() for p in model.parameters())/1e6}M Parameters")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9)
 
     # load a pretrained model if exists
     if os.path.exists(checkpoint_path):
@@ -91,6 +100,11 @@ def train_model():
         _, loss = model(src_ids, tgt_inputs, src_mask, tgt_ip_mask, tgt_labels)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
+        
+        # update lr
+        lr_now = get_lr(step=iter, base_lr=lr, warmup_steps=warmup_steps, total_steps=max_iters)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr_now
         optimizer.step()
 
     print("\n----- Training Complete -----\n")

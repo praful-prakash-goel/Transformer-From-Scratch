@@ -76,15 +76,17 @@ def get_batch_and_padding(split='train'):
         return ids + [pad_id] * (max_len - len(ids))
 
     # sample random idxs for batching
-    idxs = torch.randint(len(eng_data) - context_length, (batch_size,))
+    idxs = torch.randint(len(eng_data), (batch_size,))
+    src_max_len = min(max(len(eng_data[i]) for i in idxs), context_length)
+    tgt_max_len = min(max(len(fr_data[i]) for i in idxs), context_length)
     
     # apply padding and create batch
     src_batch = torch.stack([
-        torch.tensor(pad(eng_data[i], context_length, eng_tokenizer.pad), dtype=torch.long)
+        torch.tensor(pad(eng_data[i], src_max_len, eng_tokenizer.pad), dtype=torch.long)
         for i in idxs
     ])
     tgt_batch = torch.stack([
-        torch.tensor(pad(fr_data[i], context_length, fr_tokenizer.pad), dtype=torch.long)
+        torch.tensor(pad(fr_data[i], tgt_max_len, fr_tokenizer.pad), dtype=torch.long)
         for i in idxs
     ])
     

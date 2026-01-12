@@ -13,6 +13,10 @@ def translate(
 ):
     model.eval()
     
+    eng_ip = eng_ip.strip()
+    if not eng_ip.endswith('.'):
+        eng_ip += '.'
+        
     # processing input sentence to feed into encoder
     src_ids = eng_tokenizer.encode(eng_ip)
     src_ids = torch.tensor(
