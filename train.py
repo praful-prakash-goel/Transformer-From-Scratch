@@ -46,6 +46,8 @@ def get_lr(step, base_lr, warmup_steps, total_steps):
     return base_lr * 0.5 * (1 + math.cos(math.pi * progress))
     
 def train_model():
+    print("Using:", torch.cuda.get_device_name(0))
+    print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
     # build model
     model = build_model(device=device)
     print(f">> {sum(p.numel() for p in model.parameters())/1e6}M Parameters")

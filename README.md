@@ -125,6 +125,7 @@ Transformer-from-scratch/
 ├── app.py
 ├── train.py
 ├── README.md
+├── requirements.txt
 └── .gitignore
 
 ```
