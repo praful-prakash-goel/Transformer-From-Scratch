@@ -36,7 +36,7 @@ The model follows the original *"Attention is All You Need"* (Vaswani et al., 20
 
 1. **Token + Position Embeddings**
    - Learned token embedding table: `(vocab_size, n_emb)` for both src ids and tgt ids
-   - Rotary Position Embedding: Fixed sinusoidal embeddings (0 learnable parameters)
+   - Rotary Position Embedding: Parameter-free sinusoidal rotations on attention queries and keys
 
 2. **Encoder** (6 layers)
    - Unmasked multi-head **self-attention**
