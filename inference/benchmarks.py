@@ -51,7 +51,7 @@ def calculate_tps(generate_func, method_name, device=DEVICE, english_inputs=ENGL
         ).unsqueeze(0).to(device)
         src_mask = src_ids != eng_tokenizer.pad
         
-        _ = generate_func(src_ids, idx, max_new_tokens=100, src_mask=src_mask)
+        _ = generate_func(src_ids, idx, max_new_tokens=512, src_mask=src_mask)
     
     # Actual test
     print(f"\n>> Running benchmark for {method_name}")
@@ -68,7 +68,7 @@ def calculate_tps(generate_func, method_name, device=DEVICE, english_inputs=ENGL
         if device == 'cuda': torch.cuda.synchronize()
         start_time = time.time()
         
-        output_ids = generate_func(src_ids, idx, max_new_tokens=100, src_mask=src_mask)
+        output_ids = generate_func(src_ids, idx, max_new_tokens=512, src_mask=src_mask)
         
         # End timer
         if device == 'cuda': torch.cuda.synchronize()
