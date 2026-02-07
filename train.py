@@ -6,8 +6,8 @@ import math
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 checkpoint_path = 'saved_models/best_checkpoint.pt'
-lr = 1.5e-4
-max_iters = 15_000
+lr = 5e-4
+max_iters = 20_000
 warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500
@@ -70,7 +70,9 @@ def train_model():
         if iter % eval_interval == 0 or iter == max_iters-1:
             losses = estimate_loss(model)
             train_loss, val_loss = losses['train'], losses['val']
-            print(f">> Step {iter} - train_loss: {train_loss}, val_loss: {val_loss}")
+            train_perplexity, val_perplexity = torch.exp(train_loss), torch.exp(val_loss)
+            
+            print(f">> Step {iter} - Train Loss: {train_loss}, Train PPL: {train_perplexity}, Val Loss: {val_loss}, Val PPL: {val_perplexity}")
             
             # if current loss is less than min loss, then save the model
             if val_loss < best_val_loss:
