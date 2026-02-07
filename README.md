@@ -148,7 +148,7 @@ python train.py
 The script will:
 
 - Build character vocabularies for English and French
-- Train for 20000 iterations
+- Train for 10000 iterations
 - Evaluate on train/val splits every 500 steps
 - Save the best model as `saved_models/best_checkpoint.pt`
 - After training, you can run `app.py` for demo of the model
@@ -191,7 +191,7 @@ Edit hyperparameters in `train.py` at the top of the file:
 
 ```python
 lr = 5e-4
-max_iters = 20_000
+max_iters = 10_000
 warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500

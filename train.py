@@ -7,7 +7,7 @@ import math
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 checkpoint_path = 'saved_models/best_checkpoint.pt'
 lr = 5e-4
-max_iters = 20_000
+max_iters = 10_000
 warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500
