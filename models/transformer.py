@@ -4,9 +4,9 @@ import torch.nn.functional as F
 from typing import Optional
 from data.dataloader import vocab_size_eng, vocab_size_fr
 
-n_embd = 256
-context_length = 64
-dropout = 0.2
+n_embd = 512
+context_length = 1024
+dropout = 0.1
 n_heads = 8
 n_layers = 6
 
@@ -379,7 +379,7 @@ class Transformer(nn.Module):
         idx: torch.LongTensor,
         max_new_tokens: int,
         src_mask: Optional[torch.BoolTensor] = None,
-        temperature: float = 1.0,
+        temperature: float = 0.0,
         do_sample: bool = True,
         top_k: Optional[int] = None,
         eos_token: Optional[int] = None
@@ -463,7 +463,7 @@ class Transformer(nn.Module):
         idx: torch.tensor,
         max_new_tokens: int,
         src_mask: Optional[torch.BoolTensor] = None,
-        temperature: float = 1.0,
+        temperature: float = 0.0,
         do_sample: bool = False,
         top_k: Optional[int] = None,
         eos_token: Optional[int] = None

@@ -6,8 +6,8 @@ def translate(
     eng_tokenizer,
     fr_tokenizer,
     device,
-    max_new_tokens=100,
-    temperature=1.0,
+    max_new_tokens=200,
+    temperature=0.0,
     do_sample=False,
     top_k=None,
 ):

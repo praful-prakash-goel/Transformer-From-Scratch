@@ -25,12 +25,12 @@ The model follows the original *"Attention is All You Need"* (Vaswani et al., 20
 **Transformer Encoder-Decoder** (seq2seq)
 
 ### Hyperparameters
-- **Embedding Dimension**: `n_embd = 256`
-- **Context Length**: `context_length = 64`
+- **Embedding Dimension**: `n_embd = 512`
+- **Context Length**: `context_length = 1024`
 - **Number of Layers**: `n_layers = 6` (both encoder and decoder)
-- **Number of Attention Heads**: `n_heads = 8` (head size = 256 / 8 = 32)
-- **Feed-Forward Hidden Size**: 4 × 256 = 1024
-- **Dropout**: `0.2`
+- **Number of Attention Heads**: `n_heads = 8` (head size = 512 / 8 = 64)
+- **Feed-Forward Hidden Size**: 4 × 512 = 2048
+- **Dropout**: `0.1`
 
 ### Key Components
 
@@ -105,22 +105,16 @@ Transformer-from-scratch/
 ├── data/
 │   ├── __init__.py
 │   ├── dataloader.py
-│   ├── eng_french.csv
-│   └── eng_to_french.zip
+│   └── eng_french.csv
 │
 ├── inference/
 │   ├── __init__.py
+│   ├── benchmarks.py
 │   └── generate.py
-│
+|
 ├── models/
 │   ├── __init__.py
 │   └── transformer.py
-│
-├── notebooks/
-│   └── data_analysis.ipynb
-│
-├── saved_models/
-│   └── best_checkpoint.pt
 │
 ├── app.py
 ├── train.py
@@ -154,7 +148,7 @@ python train.py
 The script will:
 
 - Build character vocabularies for English and French
-- Train for 15000 iterations
+- Train for 20000 iterations
 - Evaluate on train/val splits every 500 steps
 - Save the best model as `saved_models/best_checkpoint.pt`
 - After training, you can run `app.py` for demo of the model
@@ -186,9 +180,9 @@ Run this for demo of the model, in which you can provide your input for translat
 Edit hyperparameters in `models/transformer.py` at the top of the file:
 
 ```python
-n_embd = 256
-context_length = 64
-dropout = 0.2
+n_embd = 512
+context_length = 1024
+dropout = 0.1
 n_heads = 8
 n_layers = 6
 ```
@@ -196,8 +190,8 @@ n_layers = 6
 Edit hyperparameters in `train.py` at the top of the file:
 
 ```python
-lr = 1.5e-4
-max_iters = 15_000
+lr = 5e-4
+max_iters = 20_000
 warmup_steps = 1_000
 eval_iters = 200
 eval_interval = 500
@@ -206,8 +200,8 @@ eval_interval = 500
 Edit hyperparameters in `data/dataloader.py` at the top of the file:
 
 ```python
-context_length = 64
-batch_size = 32
+context_length = 1024
+batch_size = 64
 ```
 
 ---

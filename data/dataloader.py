@@ -2,8 +2,8 @@ import pandas as pd
 import torch
 import os
 
-context_length = 64
-batch_size = 32
+context_length = 1024
+batch_size = 64
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_PATH = os.path.join(BASE_DIR, "eng_french.csv")
@@ -95,4 +95,3 @@ def get_batch_and_padding(split='train'):
     tgt_mask = tgt_batch != fr_tokenizer.pad
 
     return src_batch, tgt_batch, src_mask, tgt_mask
-
