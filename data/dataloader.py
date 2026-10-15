@@ -80,7 +80,7 @@ french_text = df['French words/sentences'].tolist()
 
 # Tokenize each paired sentence using the same pretrained subword vocabulary.
 eng_data = [eng_tokenizer.encode(sentence) for sentence in eng_text]
-fr_data = [fr_tokenizer.encode(sentence) for sentence in fr_text]
+fr_data = [fr_tokenizer.encode(sentence) for sentence in french_text]
 
 indices = list(range(len(eng_data)))
 
