@@ -116,7 +116,6 @@ class MultiHeadAttention(nn.Module):
         
         B, Tq, C = q_input.shape
         _, Tk, _ = kv_input.shape
-        large_neg = -1e9
         
         # compute q, k and v vectors seperately
         q = self.query(q_input)
@@ -187,7 +186,7 @@ class MultiHeadAttention(nn.Module):
                     causal_mask = torch.ones(Tq, total_len, device=q_input.device, dtype=torch.bool)
                 else:
                     causal_mask = torch.tril(torch.ones(Tq, total_len, device=q_input.device, dtype=torch.bool))
-                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), large_neg)
+                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), torch.finfo(weights.dtype).min)
             
             # padding mask
             if attn_mask is not None:
@@ -195,7 +194,7 @@ class MultiHeadAttention(nn.Module):
                     broadcasting_mask = attn_mask.unsqueeze(1)
                 else:
                     broadcasting_mask = attn_mask
-                weights = weights.masked_fill(~broadcasting_mask, large_neg)
+                weights = weights.masked_fill(~broadcasting_mask, torch.finfo(weights.dtype).min)
             
             weights = F.softmax(weights, dim=-1)
             weights = self.dropout(weights)
@@ -211,7 +210,7 @@ class MultiHeadAttention(nn.Module):
             # apply causal mask if required
             if self.masked:
                 causal_mask = torch.tril(torch.ones(Tq, Tk, device=q_input.device, dtype=torch.bool))
-                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), large_neg)
+                weights = weights.masked_fill(~causal_mask.unsqueeze(0).unsqueeze(0), torch.finfo(weights.dtype).min)
         
             # padding mask
             if attn_mask is not None:
@@ -219,7 +218,7 @@ class MultiHeadAttention(nn.Module):
                     broadcasting_mask = attn_mask.unsqueeze(1)
                 else:
                     broadcasting_mask = attn_mask
-                weights = weights.masked_fill(~broadcasting_mask, large_neg)
+                weights = weights.masked_fill(~broadcasting_mask, torch.finfo(weights.dtype).min)
                 
             weights = F.softmax(weights, dim=-1)
             weights = self.dropout(weights)
