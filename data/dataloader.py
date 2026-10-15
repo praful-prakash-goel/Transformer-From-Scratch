@@ -98,8 +98,20 @@ fr_data_train = [fr_data[i] for i in train_idx]
 fr_data_val = [fr_data[i] for i in val_idx]
 
 def get_batch_and_padding(split='train'):
-    eng_data = eng_data_train if split == 'train' else eng_data_val
-    fr_data = fr_data_train if split == 'train' else fr_data_val
+    if split == "train":
+        source_data, target_data = eng_data_train, fr_data_train
+    elif split == "val":
+        source_data, target_data = eng_data_val, fr_data_val
+    else:
+        raise ValueError("split must be either 'train' or 'val'")
+
+    if not source_data:
+        raise ValueError(f"The {split} dataset split is empty.")
+
+        # Sample paired rows with replacement, matching the original dataloader.
+    indices = torch.randint(len(source_data), (batch_size,)).tolist()
+    src_max_len = min(max(len(source_data[i]) for i in indices), context_length)
+    tgt_max_len = min(max(len(target_data[i]) for i in indices), context_length)
 
     def pad(ids, max_len, pad_id, eos_id):
         # If truncated, retain EOS as the final token.
@@ -109,23 +121,21 @@ def get_batch_and_padding(split='train'):
                 ids[-1] = eos_id
         return ids + [pad_id] * (max_len - len(ids))
 
-    # sample random idxs for batching
-    idxs = torch.randint(len(eng_data), (batch_size,))
-    src_max_len = min(max(len(eng_data[i]) for i in idxs), context_length)
-    tgt_max_len = min(max(len(fr_data[i]) for i in idxs), context_length)
-    
-    # apply padding and create batch
-    src_batch = torch.stack([
-        torch.tensor(pad(eng_data[i], src_max_len, eng_tokenizer.pad), dtype=torch.long)
-        for i in idxs
-    ])
-    tgt_batch = torch.stack([
-        torch.tensor(pad(fr_data[i], tgt_max_len, fr_tokenizer.pad), dtype=torch.long)
-        for i in idxs
-    ])
-    
-    # create padding mask
+    src_batch = torch.tensor(
+        [
+            pad(source_data[i], src_max_len, eng_tokenizer.pad, eng_tokenizer.eos)
+            for i in indices
+        ],
+        dtype=torch.long,
+    )
+    tgt_batch = torch.tensor(
+        [
+            pad(target_data[i], tgt_max_len, fr_tokenizer.pad, fr_tokenizer.eos)
+            for i in indices
+        ],
+        dtype=torch.long,
+    )
+
     src_mask = src_batch != eng_tokenizer.pad
     tgt_mask = tgt_batch != fr_tokenizer.pad
-
     return src_batch, tgt_batch, src_mask, tgt_mask
