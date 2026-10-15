@@ -5,7 +5,9 @@ import os
 import math
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-checkpoint_path = 'saved_models/best_checkpoint.pt'
+CHECKPOINT_DIR = 'saved_models'
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+checkpoint_path = os.path.join(CHECKPOINT_DIR, 'checkpoint_best.pt')
 lr = 3e-4
 max_iters = 50_000
 warmup_steps = 1_500

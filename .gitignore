@@ -17,13 +17,6 @@ venv/
 notebooks/
 
 # =========================
-# Model checkpoints
-# =========================
-saved_models/
-*.pt
-*.pth
-
-# =========================
 # Data artifacts
 # =========================
 *.zip
