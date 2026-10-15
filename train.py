@@ -6,10 +6,10 @@ import math
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 checkpoint_path = 'saved_models/best_checkpoint.pt'
-lr = 5e-4
-max_iters = 10_000
-warmup_steps = 1_000
-eval_iters = 200
+lr = 3e-4
+max_iters = 50_000
+warmup_steps = 1_500
+eval_iters = 100
 eval_interval = 500
 
 @torch.no_grad()
@@ -64,6 +64,7 @@ def train_model():
     else:
         best_val_loss = float('inf')
 
+    scaler = torch.amp.GradScaler("cuda")
     # training loop
     for iter in range(max_iters):
         # evaluate model after an interval
@@ -100,16 +101,20 @@ def train_model():
         tgt_ip_mask = tgt_mask[:, :-1]
         # tgt label is input shifted by 1
         tgt_labels = tgt_ids[:, 1:]
-        
-        _, loss = model(src_ids, tgt_inputs, src_mask, tgt_ip_mask, tgt_labels)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            _, loss = model(src_ids, tgt_inputs, src_mask, tgt_ip_mask, tgt_labels)
+        scaler.scale(loss).backward()
+
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         
         # update lr
         lr_now = get_lr(step=iter, base_lr=lr, warmup_steps=warmup_steps, total_steps=max_iters)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr_now
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
     print("\n----- Training Complete -----\n")
     

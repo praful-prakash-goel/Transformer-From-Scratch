@@ -6,10 +6,7 @@ def translate(
     eng_tokenizer,
     fr_tokenizer,
     device,
-    max_new_tokens=200,
-    temperature=0.0,
-    do_sample=False,
-    top_k=None,
+    max_new_tokens=200
 ):
     model.eval()
     
@@ -35,9 +32,6 @@ def translate(
         idx=idx,
         max_new_tokens=max_new_tokens,
         src_mask=src_mask,
-        temperature=temperature,
-        do_sample=do_sample,
-        top_k=top_k,
         eos_token=fr_tokenizer.eos
     )
     fr_op = fr_tokenizer.decode(translated_op[0].tolist())

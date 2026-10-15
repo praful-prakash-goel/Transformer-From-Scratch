@@ -1,51 +1,36 @@
 import pandas as pd
 import torch
 import os
+from sklearn.model_selection import train_test_split
+from transformers import AutoTokenizer
 
 context_length = 1024
 batch_size = 64
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CSV_PATH = os.path.join(BASE_DIR, "eng_french.csv")
+TOKENIZER_NAME = "Helsinki-NLP/opus-mt-en-fr"
 
-df = pd.read_csv(CSV_PATH)
-eng_text = df['English words/sentences'].tolist()
-french_text = df['French words/sentences'].tolist()
+class TranslationTokenizer:
+    """Adapter exposing the interface expected by the existing project."""
 
-# building vocabulary
-eng_chars = set()
-for sent in eng_text:
-    for ch in sent:
-        if ch not in eng_chars:
-            eng_chars.add(ch)
+    def __init__(self, hf_tokenizer):
+        self.tokenizer = hf_tokenizer
+        self.pad = hf_tokenizer.pad_token_id
+        self.unk = hf_tokenizer.unk_token_id
+        self.eos = hf_tokenizer.eos_token_id
+        self.bos = hf_tokenizer.bos_token_id
 
-fr_chars = set()
-for sent in french_text:
-    for ch in sent:
-        if ch not in fr_chars:
-            fr_chars.add(ch)
+        if self.pad is None or self.unk is None or self.eos is None or self.bos is None:
+            raise ValueError(
+                "Tokenizer must have pad, unk, eos, and bos token IDs. "
+                "The dataloader sets a dedicated BOS token before creating this adapter."
+            )
 
-eng_chars = sorted(list(eng_chars))
-fr_chars = sorted(list(fr_chars))
-vocab_size_eng = len(eng_chars) + 4
-vocab_size_fr = len(fr_chars) + 4 # for special tokens
-
-class CharTokenizer:
-    '''A custom character tokenizer'''
-    
-    def __init__(self, chars, specials=('<pad>', '<unk>', '<bos>', '<eos>')):
-        self.specials = list(specials)
-        self.chars = self.specials + sorted(set(chars))
-        self.stoi = {ch: i for i, ch in enumerate(self.chars)}
-        self.itos = {i: ch for i, ch in enumerate(self.chars)}
-
-        self.pad = self.stoi['<pad>']
-        self.unk = self.stoi['<unk>']
-        self.bos = self.stoi['<bos>']
-        self.eos = self.stoi['<eos>']
-
-    def encode(self, s, add_bos=True, add_eos=True):
-        ids = [self.stoi.get(ch, self.unk) for ch in s]
+    def encode(self, text, add_bos=True, add_eos=True):
+        # Do not let Hugging Face automatically add its own special tokens;
+        # this adapter adds the exact BOS/EOS markers used by the model.
+        ids = self.tokenizer.encode(str(text), add_special_tokens=False)
         if add_bos:
             ids = [self.bos] + ids
         if add_eos:
@@ -53,26 +38,75 @@ class CharTokenizer:
         return ids
 
     def decode(self, ids, remove_specials=True):
-        if remove_specials:
-            ids = [i for i in ids if i not in (self.pad, self.bos, self.eos)]
-        return ''.join([self.itos[i] for i in ids])
-    
-eng_tokenizer = CharTokenizer(eng_chars)
-fr_tokenizer = CharTokenizer(fr_chars)
+        # Keep the old call signature; generated special tokens are omitted.
+        return self.tokenizer.decode(
+            [int(token_id) for token_id in ids],
+            skip_special_tokens=remove_specials,
+            clean_up_tokenization_spaces=True,
+        ).strip()
 
-eng_data = [eng_tokenizer.encode(sent) for sent in eng_text]
-fr_data = [fr_tokenizer.encode(sent) for sent in french_text]
+_hf_source_tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+_hf_target_tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
 
-train_len = int(0.9 * len(eng_data))
-eng_data_train, eng_data_val = eng_data[:train_len], eng_data[train_len:]
-fr_data_train, fr_data_val = fr_data[:train_len], fr_data[train_len:]
+# Add the same dedicated BOS token to both copies. Do not reuse PAD or EOS.
+_hf_source_tokenizer.add_special_tokens({"bos_token": "<bos>"})
+_hf_target_tokenizer.add_special_tokens({"bos_token": "<bos>"})
+
+# Pin the correct SentencePiece model for each side. Marian's decoder defaults
+# to target-side decoding; the source instance is only used for input encoding.
+if hasattr(_hf_source_tokenizer, "spm_source"):
+    _hf_source_tokenizer.current_spm = _hf_source_tokenizer.spm_source
+if hasattr(_hf_target_tokenizer, "spm_target"):
+    _hf_target_tokenizer.current_spm = _hf_target_tokenizer.spm_target
+
+eng_tokenizer = TranslationTokenizer(_hf_source_tokenizer)
+fr_tokenizer = TranslationTokenizer(_hf_target_tokenizer)
+vocab_size_eng = len(_hf_source_tokenizer)
+vocab_size_fr = len(_hf_target_tokenizer)
+
+if eng_tokenizer.bos != fr_tokenizer.bos:
+    raise ValueError("English and French tokenizers produced different BOS token IDs.")
+
+
+if not os.path.isfile(CSV_PATH):
+    raise FileNotFoundError(
+        f"Could not find dataset at {CSV_PATH}. Put eng_french.csv in the same "
+        "directory as this dataloader.py."
+    )
+
+df = pd.read_csv(CSV_PATH)
+eng_text = df['English words/sentences'].tolist()
+french_text = df['French words/sentences'].tolist()
+
+# Tokenize each paired sentence using the same pretrained subword vocabulary.
+eng_data = [eng_tokenizer.encode(sentence) for sentence in eng_text]
+fr_data = [fr_tokenizer.encode(sentence) for sentence in fr_text]
+
+indices = list(range(len(eng_data)))
+
+train_idx, val_idx = train_test_split(
+    indices,
+    test_size=0.1,
+    random_state=42,
+    shuffle=True,
+)
+
+eng_data_train = [eng_data[i] for i in train_idx]
+eng_data_val = [eng_data[i] for i in val_idx]
+
+fr_data_train = [fr_data[i] for i in train_idx]
+fr_data_val = [fr_data[i] for i in val_idx]
 
 def get_batch_and_padding(split='train'):
     eng_data = eng_data_train if split == 'train' else eng_data_val
     fr_data = fr_data_train if split == 'train' else fr_data_val
 
-    def pad(ids, max_len, pad_id):
-        ids = ids[:max_len]
+    def pad(ids, max_len, pad_id, eos_id):
+        # If truncated, retain EOS as the final token.
+        if len(ids) > max_len:
+            ids = ids[:max_len]
+            if max_len > 0:
+                ids[-1] = eos_id
         return ids + [pad_id] * (max_len - len(ids))
 
     # sample random idxs for batching

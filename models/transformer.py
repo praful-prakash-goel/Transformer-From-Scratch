@@ -330,6 +330,8 @@ class Transformer(nn.Module):
         self.ln_f = nn.LayerNorm(n_embd)
         # language model head for getting logits from embeddings
         self.lm_head = nn.Linear(n_embd, tgt_vocab_size)
+        self.tgt_pad_id = tgt_pad_id
+
     
     def forward(self, src_ids, tgt_ids, src_mask: Optional[torch.Tensor] = None, tgt_mask: Optional[torch.Tensor] = None, target=None):
         '''
@@ -363,6 +365,7 @@ class Transformer(nn.Module):
             # if target is provided, compute loss
             B, T, C = logits.shape
             labels = target.clone()
+            labels[labels == self.tgt_pad_id] = -100
             if tgt_mask is not None:
                 if tgt_mask.dtype != torch.bool:
                     tgt_mask = tgt_mask.to(device).to(torch.bool)
@@ -379,9 +382,6 @@ class Transformer(nn.Module):
         idx: torch.LongTensor,
         max_new_tokens: int,
         src_mask: Optional[torch.BoolTensor] = None,
-        temperature: float = 0.0,
-        do_sample: bool = True,
-        top_k: Optional[int] = None,
         eos_token: Optional[int] = None
     ):
         '''
@@ -389,9 +389,6 @@ class Transformer(nn.Module):
         idx: (B, T_start) initial decoder token ids (prompt)
         max_new_tokens: number of tokens to generate
         src_mask: optional (B, T_src) boolean mask where True = valid (encoder pads)
-        temperature: sampling temperature (controls the creativity of the model)
-        do_sample: if True sample, else greedy argmax 
-        top_k: if sampling and top_k provided, restrict to top_k (controls the diversity of sampling)
         eos_token: if provided, stop per-sequence when eos is generated
         returns: Tensor (B, T_start + gen) with generated token ids
         '''
@@ -425,26 +422,8 @@ class Transformer(nn.Module):
             logits = self.lm_head(out)
             # take only the last logits
             last_logits = logits[:, -1, :]
-            
-            if temperature != 1.0 and temperature > 0.0:
-                last_logits = last_logits / temperature
-            
-            if do_sample:
-                probs = F.softmax(last_logits, dim=-1)
-                if top_k is not None and top_k > 0:
-                    # take the top k probs sorted in descending order
-                    topk_vals, topk_idxs = probs.topk(top_k, dim=-1) # shape: (B, k)
-                    # take the last prob (min)
-                    min_topk = topk_vals[..., -1].unsqueeze(-1) # shape: (B, 1)
-                    allowed_mask = probs >= min_topk
-                    # allow only those probs which are greater than min
-                    probs = probs * allowed_mask.to(probs.dtype)
-                    # normalize probs
-                    probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
-                next_token = torch.multinomial(probs, num_samples=1)
-            else:
-                # if sampling is not allowed than take the argmax of the logits
-                next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
+
+            next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
             
             generated = torch.cat([generated, next_token], dim=1)
         
@@ -463,9 +442,6 @@ class Transformer(nn.Module):
         idx: torch.tensor,
         max_new_tokens: int,
         src_mask: Optional[torch.BoolTensor] = None,
-        temperature: float = 0.0,
-        do_sample: bool = False,
-        top_k: Optional[int] = None,
         eos_token: Optional[int] = None
     ):
         '''
@@ -473,9 +449,6 @@ class Transformer(nn.Module):
         idx: (B, T_start) initial decoder token ids (prompt)
         max_new_tokens: number of tokens to generate
         src_mask: optional (B, T_src) boolean mask where True = valid (encoder pads)
-        temperature: sampling temperature (controls the creativity of the model)
-        do_sample: if True sample, else greedy argmax 
-        top_k: if sampling and top_k provided, restrict to top_k (controls the diversity of sampling)
         eos_token: if provided, stop per-sequence when eos is generated
         returns: Tensor (B, T_start + gen) with generated token ids
         '''
@@ -507,22 +480,7 @@ class Transformer(nn.Module):
         logits = self.lm_head(out)
         # take only the last logit
         last_logits = logits[:, -1, :]
-        
-        if temperature != 1.0 and temperature > 0.0:
-            last_logits = last_logits / temperature
-                
-        # sample/argmax logic
-        if do_sample:
-            probs = F.softmax(last_logits, dim=-1)
-            if top_k is not None and top_k > 0:
-                topk_vals, topk_idxs = probs.topk(top_k, dim=-1)
-                min_topk = topk_vals[..., -1].unsqueeze(-1)
-                allowed_mask = probs >= min_topk
-                probs = probs * allowed_mask.to(probs.dtype)
-                probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
-            next_token = torch.multinomial(probs, num_samples=1)
-        else:
-            next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
+        next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
         
         generated = torch.cat([generated, next_token], dim=1)
         idx = torch.cat([idx, next_token], dim=1)
@@ -563,22 +521,7 @@ class Transformer(nn.Module):
             out = self.ln_f(dec_output)
             logits = self.lm_head(out)
             last_logits = logits[:, -1, :]
-            
-            if temperature != 1.0 and temperature > 0.0:
-                last_logits = last_logits / temperature
-            
-            # sample/argmax logic
-            if do_sample:
-                probs = F.softmax(last_logits, dim=-1)
-                if top_k is not None and top_k > 0:
-                    topk_vals, topk_idxs = probs.topk(top_k, dim=-1)
-                    min_topk = topk_vals[..., -1].unsqueeze(-1)
-                    allowed_mask = probs >= min_topk
-                    probs = probs * allowed_mask.to(probs.dtype)
-                    probs = probs / probs.sum(dim=-1, keepdim=True).clamp(min=1e-9)
-                next_token = torch.multinomial(probs, num_samples=1)
-            else:
-                next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
+            next_token = torch.argmax(last_logits, dim=-1, keepdim=True)
             
             generated = torch.cat([generated, next_token], dim=1)
             idx = torch.cat([idx, next_token], dim=1)
