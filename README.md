@@ -72,7 +72,7 @@ Approximately **~9–12 million** (exact count printed during training).
   - Early stopping on `<eos>`
 - Label smoothing (0.1) in cross-entropy loss
 - Best checkpoint saving based on validation loss
-- Character-level tokenization (no subword/BPE)
+- Sentencepiece Tokenizer
 
 ## Dataset
 
@@ -150,10 +150,16 @@ The script will:
 - Build character vocabularies for English and French
 - Train for 10000 iterations
 - Evaluate on train/val splits every 500 steps
-- Save the best model as `saved_models/best_checkpoint.pt`
+- Save the best model as `saved_models/checkpoint_best.pt`
 - After training, you can run `app.py` for demo of the model
 
 ---
+
+## Alternatively you can download pre-trained checkpoint
+
+- Download the pre-trained checkpoint at: [Huggingface Model](https://huggingface.co/praful-goel/eng_french_translator_model/blob/main/checkpoint_best.pt)
+- Save the model in `saved_models/checkpoint_best.pt`
+- Now you can run `app.py` for demo of the model
 
 ## To translate your own sentences after training:
 
@@ -190,10 +196,10 @@ n_layers = 6
 Edit hyperparameters in `train.py` at the top of the file:
 
 ```python
-lr = 5e-4
-max_iters = 10_000
-warmup_steps = 1_000
-eval_iters = 200
+lr = 3e-4
+max_iters = 50_000
+warmup_steps = 1_500
+eval_iters = 100
 eval_interval = 500
 ```
 
