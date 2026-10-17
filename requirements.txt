@@ -6,4 +6,4 @@ transformers
 sentencepiece
 sacremoses
 streamlit
-sacrebleu
+sacrebleu==2.6.0
