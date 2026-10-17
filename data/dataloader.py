@@ -84,9 +84,16 @@ fr_data = [fr_tokenizer.encode(sentence) for sentence in french_text]
 
 indices = list(range(len(eng_data)))
 
-train_idx, val_idx = train_test_split(
+train_idx, temp_idx = train_test_split(
     indices,
-    test_size=0.1,
+    test_size=0.2,
+    random_state=42,
+    shuffle=True,
+)
+
+val_idx, test_idx = train_test_split(
+    temp_idx,
+    test_size=0.5,
     random_state=42,
     shuffle=True,
 )
