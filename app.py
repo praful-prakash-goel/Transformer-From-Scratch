@@ -1,14 +1,18 @@
 import streamlit as st
 import torch
 from data.dataloader import eng_tokenizer, fr_tokenizer
-from train import checkpoint_path, device
+from train import checkpoint_path
 from models.transformer import build_model
 from inference.generate import translate
+
+device = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
 
 @st.cache_resource
 def load_model():
     model = build_model(device=device)
-    checkpoint = torch.load(checkpoint_path, mmap=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
     return model
