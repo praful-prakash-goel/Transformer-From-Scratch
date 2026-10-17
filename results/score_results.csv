@@ -1,0 +1,2 @@
+examples,overall_bleu,overall_chrf,group_short (<=10 words)_bleu,group_short (<=10 words)_chrf,group_medium (11-20 words)_bleu,group_medium (11-20 words)_chrf,group_long (>20 words)_bleu,group_long (>20 words)_chrf
+17563,41.798775546640556,60.3646637498428,42.80906258560046,61.174395795674386,35.39158417799344,54.8970153563483,16.216664420559127,38.25193758553889
