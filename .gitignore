@@ -35,3 +35,5 @@ saved_models/
 Thumbs.db
 .vscode/
 .idea/
+
+.agents/
